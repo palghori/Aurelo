@@ -380,6 +380,37 @@ public class ToolCardView: NSView {
     }
 
     private func executeTool(urls: [URL]) {
+        // ═══════════════════════════════════════════════════════════
+        // MULTI-FILE operations — must process ALL files together
+        // ═══════════════════════════════════════════════════════════
+        switch tool {
+        case .mergePDF:
+            do {
+                let resultURL = try ProcessingEngine.shared.mergePDF(urls: urls)
+                NSWorkspace.shared.activateFileViewerSelecting([resultURL])
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+            return
+
+        case .createPDF:
+            do {
+                let resultURL = try ProcessingEngine.shared.createPDF(from: urls)
+                NSWorkspace.shared.activateFileViewerSelecting([resultURL])
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+            return
+
+        default:
+            break  // fall through to per-file processing below
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // SINGLE-FILE operations — process each file individually
+        // ═══════════════════════════════════════════════════════════
         for url in urls {
             do {
                 var resultURL: URL? = nil
@@ -405,9 +436,56 @@ public class ToolCardView: NSView {
                     resultURL = try ProcessingEngine.shared.editImage(url: url)
                 case .redactImage:
                     resultURL = try ProcessingEngine.shared.redactImage(url: url, rectFraction: CGRect(x: 0.2, y: 0.2, width: 0.4, height: 0.3))
+
+                // PDF tools (single-file)
+                case .splitPDF:
+                    let pages = try ProcessingEngine.shared.splitPDF(url: url)
+                    if !pages.isEmpty {
+                        NSWorkspace.shared.activateFileViewerSelecting(pages)
+                    }
+                    continue
+
+                // Async audio/video tools
+                case .normalizeAudio:
+                    Task {
+                        do {
+                            let res = try await ProcessingEngine.shared.normalizeAudio(url: url)
+                            await MainActor.run {
+                                NSWorkspace.shared.activateFileViewerSelecting([res])
+                            }
+                        } catch {
+                            await MainActor.run {
+                                let alert = NSAlert(error: error)
+                                alert.runModal()
+                            }
+                        }
+                    }
+                    continue
+
+                case .muteVideo:
+                    Task {
+                        do {
+                            let res = try await ProcessingEngine.shared.muteVideo(url: url)
+                            await MainActor.run {
+                                NSWorkspace.shared.activateFileViewerSelecting([res])
+                            }
+                        } catch {
+                            await MainActor.run {
+                                let alert = NSAlert(error: error)
+                                alert.runModal()
+                            }
+                        }
+                    }
+                    continue
+
                 default:
-                    // General pass-through for other tools
-                    resultURL = try ProcessingEngine.shared.compress(url: url)
+                    // Tools that are not yet implemented — show informative alert
+                    let alert = NSAlert()
+                    alert.messageText = "\(tool.title) — Coming Soon"
+                    alert.informativeText = "This tool is under active development and will be available in a future update.\n\n\(tool.shortDescription)"
+                    alert.alertStyle = .informational
+                    alert.runModal()
+                    return
                 }
 
                 if let res = resultURL {

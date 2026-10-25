@@ -366,4 +366,63 @@ public class ProcessingEngine {
             throw export.error ?? NSError(domain: "Aurelo", code: 24, userInfo: [NSLocalizedDescriptionKey: "Video mute export failed"])
         }
     }
+
+    // MARK: - 13. Create PDF from Images & Media
+    public func createPDF(from urls: [URL]) throws -> URL {
+        guard !urls.isEmpty else {
+            throw NSError(domain: "Aurelo", code: 25, userInfo: [NSLocalizedDescriptionKey: "No files provided for PDF creation"])
+        }
+        let pdfDoc = PDFDocument()
+        var pageIndex = 0
+
+        for url in urls {
+            let ext = url.pathExtension.lowercased()
+
+            if ["jpg", "jpeg", "png", "webp", "heic", "tiff", "tif", "bmp", "avif", "gif"].contains(ext) {
+                // Image → PDF page
+                guard let image = NSImage(contentsOf: url) else { continue }
+                if let pdfPage = PDFPage(image: image) {
+                    pdfDoc.insert(pdfPage, at: pageIndex)
+                    pageIndex += 1
+                }
+            } else if ext == "pdf" {
+                // Existing PDF → append all its pages
+                if let existingPDF = PDFDocument(url: url) {
+                    for i in 0..<existingPDF.pageCount {
+                        if let page = existingPDF.page(at: i) {
+                            pdfDoc.insert(page, at: pageIndex)
+                            pageIndex += 1
+                        }
+                    }
+                }
+            } else if ["txt", "md"].contains(ext) {
+                // Text file → render as PDF page (US Letter: 612x792 pt)
+                if let text = try? String(contentsOf: url, encoding: .utf8) {
+                    let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
+                    textView.string = text
+                    textView.font = NSFont.systemFont(ofSize: 12)
+                    textView.textColor = .black
+                    textView.backgroundColor = .white
+                    textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+                    let pdfData = textView.dataWithPDF(inside: textView.bounds)
+                    if let textPDF = PDFDocument(data: pdfData) {
+                        for i in 0..<textPDF.pageCount {
+                            if let page = textPDF.page(at: i) {
+                                pdfDoc.insert(page, at: pageIndex)
+                                pageIndex += 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        guard pageIndex > 0 else {
+            throw NSError(domain: "Aurelo", code: 26, userInfo: [NSLocalizedDescriptionKey: "No valid pages could be created from the selected files"])
+        }
+
+        let out = outputURL(for: urls[0], suffix: "created", ext: "pdf")
+        pdfDoc.write(to: out)
+        return out
+    }
 }
