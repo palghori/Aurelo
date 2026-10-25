@@ -46,6 +46,7 @@ public enum FileToolType: String, CaseIterable, Identifiable {
     // Archive & Vision
     case extractArchive = "extractArchive"
     case readQRCode = "readQRCode"
+    case extractText = "extractText"
 
     public var id: String { rawValue }
 
@@ -78,6 +79,7 @@ public enum FileToolType: String, CaseIterable, Identifiable {
         case .mergePDF: return "Merge PDF Documents"
         case .extractArchive: return "Extract ZIP / Archive"
         case .readQRCode: return "Detect & Read QR Codes"
+        case .extractText: return "OCR Text Extraction"
         }
     }
 
@@ -93,7 +95,7 @@ public enum FileToolType: String, CaseIterable, Identifiable {
             return .pdf
         case .removeMetadata, .redactImage, .redactVideo, .redactAudio:
             return .privacy
-        case .extractArchive, .readQRCode:
+        case .extractArchive, .readQRCode, .extractText:
             return .utilities
         }
     }
@@ -127,6 +129,7 @@ public enum FileToolType: String, CaseIterable, Identifiable {
         case .mergePDF: return "doc.on.doc.fill"
         case .extractArchive: return "archivebox.fill"
         case .readQRCode: return "qrcode.viewfinder"
+        case .extractText: return "text.viewfinder"
         }
     }
 
@@ -159,6 +162,7 @@ public enum FileToolType: String, CaseIterable, Identifiable {
         case .mergePDF: return "Stack multiple PDFs into a single continuous file."
         case .extractArchive: return "Instantly unpack ZIP, TAR, GZ, and RAR archives."
         case .readQRCode: return "Detect barcodes and QR codes from images or screenshots."
+        case .extractText: return "Extract all text from images or scanned PDFs with Apple Neural Engine."
         }
     }
 
@@ -184,6 +188,8 @@ public enum FileToolType: String, CaseIterable, Identifiable {
             return ["zip", "tar", "gz", "gzip", "rar"]
         case .readQRCode:
             return ["jpg", "jpeg", "png", "webp", "heic", "tiff"]
+        case .extractText:
+            return ["jpg", "jpeg", "png", "webp", "heic", "tiff", "pdf"]
         }
     }
 }

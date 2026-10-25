@@ -237,6 +237,164 @@ struct FullSuiteTest {
             }
         }
 
+        // 14. Video Snapshots
+        log("\n━━━ FEATURE 14: Extract Video Snapshots ━━━")
+        if let v = videoFile {
+            do {
+                let res = try await engine.videoSnapshots(url: v, count: 1)
+                let pass = !res.isEmpty && fm.fileExists(atPath: res[0].path)
+                report("Video Snapshots", pass: pass, detail: "Extracted still frame: \(res.first?.lastPathComponent ?? "")")
+            } catch {
+                report("Video Snapshots", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 15. Concatenate Videos (Join)
+        log("\n━━━ FEATURE 15: Concatenate Videos ━━━")
+        if let v = videoFile {
+            do {
+                let copy2 = safeCopy(videoSrc, "sample_video_part2.mp4")!
+                let res = try await engine.joinVideos(urls: [v, copy2])
+                let asset = AVAsset(url: res)
+                let dur = try await asset.load(.duration)
+                let pass = CMTimeGetSeconds(dur) > 0 && fm.fileExists(atPath: res.path)
+                report("Join Videos", pass: pass, detail: "Merged 2 video files into \(res.lastPathComponent) (\(String(format: "%.1f", CMTimeGetSeconds(dur)))s)")
+            } catch {
+                report("Join Videos", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 16. Trim Video
+        log("\n━━━ FEATURE 16: Trim Video ━━━")
+        if let v = videoFile {
+            do {
+                let res = try await engine.trimVideo(url: v, start: 0.0, duration: 2.0)
+                let asset = AVAsset(url: res)
+                let dur = try await asset.load(.duration)
+                let pass = CMTimeGetSeconds(dur) > 0 && fm.fileExists(atPath: res.path)
+                report("Trim Video", pass: pass, detail: "Trimmed video clip: \(res.lastPathComponent) (\(String(format: "%.1f", CMTimeGetSeconds(dur)))s)")
+            } catch {
+                report("Trim Video", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 17. Adjust Video Speed
+        log("\n━━━ FEATURE 17: Adjust Video Speed (2x) ━━━")
+        if let v = videoFile {
+            do {
+                let res = try await engine.changeVideoSpeed(url: v, speed: 2.0)
+                let asset = AVAsset(url: res)
+                let dur = try await asset.load(.duration)
+                let pass = CMTimeGetSeconds(dur) > 0 && fm.fileExists(atPath: res.path)
+                report("Adjust Video Speed", pass: pass, detail: "Fast-forward 2x video: \(res.lastPathComponent)")
+            } catch {
+                report("Adjust Video Speed", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 18. Compress Video
+        log("\n━━━ FEATURE 18: Compress Video ━━━")
+        if let v = videoFile {
+            do {
+                let _ = (try? fm.attributesOfItem(atPath: v.path)[.size] as? Int64) ?? 0
+                let res = try await engine.compressVideo(url: v)
+                let newSize = (try? fm.attributesOfItem(atPath: res.path)[.size] as? Int64) ?? 0
+                report("Compress Video", pass: newSize > 0, detail: "Encoded medium quality MP4: \(res.lastPathComponent) (\(newSize) bytes)")
+            } catch {
+                report("Compress Video", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 19. Trim Audio
+        log("\n━━━ FEATURE 19: Trim Audio ━━━")
+        if let a = audioFile {
+            do {
+                let res = try await engine.trimAudio(url: a, start: 0.0, duration: 5.0)
+                let asset = AVAsset(url: res)
+                let dur = try await asset.load(.duration)
+                let pass = CMTimeGetSeconds(dur) > 0 && fm.fileExists(atPath: res.path)
+                report("Trim Audio", pass: pass, detail: "Trimmed audio snippet: \(res.lastPathComponent) (\(String(format: "%.1f", CMTimeGetSeconds(dur)))s)")
+            } catch {
+                report("Trim Audio", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 20. Photo Collage
+        log("\n━━━ FEATURE 20: Photo Collage ━━━")
+        if let i1 = img1, let i2 = img2, let i3 = img3 {
+            do {
+                let res = try engine.createCollage(urls: [i1, i2, i3])
+                let pass = fm.fileExists(atPath: res.path) && (NSImage(contentsOf: res) != nil)
+                report("Photo Collage", pass: pass, detail: "Generated 3-photo grid artwork: \(res.lastPathComponent)")
+            } catch {
+                report("Photo Collage", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 21. OCR Text Extraction
+        log("\n━━━ FEATURE 21: OCR Text Extraction ━━━")
+        if let i1 = img1 {
+            do {
+                let res = try engine.extractTextOCR(url: i1)
+                let pass = fm.fileExists(atPath: res.path)
+                let text = (try? String(contentsOf: res, encoding: .utf8)) ?? ""
+                report("OCR Text Extraction", pass: pass, detail: "Extracted text to \(res.lastPathComponent) (\(text.count) chars)")
+            } catch {
+                report("OCR Text Extraction", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 22. PDF to Images
+        log("\n━━━ FEATURE 22: PDF to High-Res Images ━━━")
+        if let p2 = pdf2 {
+            do {
+                let res = try engine.pdfToImages(url: p2)
+                let pass = res.count == 2 && fm.fileExists(atPath: res[0].path)
+                report("PDF to Images", pass: pass, detail: "Rendered \(res.count) pages to individual PNG images")
+            } catch {
+                report("PDF to Images", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 23. Organize / Rotate PDF
+        log("\n━━━ FEATURE 23: Organize / Rotate PDF ━━━")
+        if let p1 = pdf1 {
+            do {
+                let initialRot = PDFDocument(url: p1)?.page(at: 0)?.rotation ?? 0
+                let res = try engine.organizePDF(url: p1, rotateAngle: 90)
+                let doc = PDFDocument(url: res)
+                let expectedRot = (initialRot + 90) % 360
+                let pass = (doc?.page(at: 0)?.rotation == expectedRot)
+                report("Organize PDF (Rotate)", pass: pass, detail: "Rotated document from \(initialRot)° to \(doc?.page(at: 0)?.rotation ?? 0)°: \(res.lastPathComponent)")
+            } catch {
+                report("Organize PDF", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 24. Annotate & Mark Image
+        log("\n━━━ FEATURE 24: Annotate & Mark Image ━━━")
+        if let i2 = img2 {
+            do {
+                let res = try engine.annotateImage(url: i2, watermarkText: "AURELO PRO")
+                let pass = fm.fileExists(atPath: res.path) && (NSImage(contentsOf: res) != nil)
+                report("Annotate Image", pass: pass, detail: "Overlay badge & watermark applied: \(res.lastPathComponent)")
+            } catch {
+                report("Annotate Image", pass: false, detail: error.localizedDescription)
+            }
+        }
+
+        // 25. Format Converter
+        log("\n━━━ FEATURE 25: Universal Format Converter ━━━")
+        if let i3 = img3 {
+            do {
+                let res = try engine.convertFormat(url: i3, targetExt: "png")
+                let pass = fm.fileExists(atPath: res.path) && (NSImage(contentsOf: res) != nil)
+                report("Convert Format (JPEG -> PNG)", pass: pass, detail: "Converted image: \(res.lastPathComponent)")
+            } catch {
+                report("Convert Format", pass: false, detail: error.localizedDescription)
+            }
+        }
+
         log("")
         log("╔════════════════════════════════════════════════════════════════════╗")
         log("║   TOTAL RESULTS: \(passed)/\(passed + failed) FEATURES VERIFIED PASSED                      ║")

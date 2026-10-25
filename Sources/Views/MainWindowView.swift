@@ -85,7 +85,7 @@ public class MainWorkspaceView: NSView {
         headerView.addSubview(badge)
 
         // Search Field
-        searchField.placeholderString = "Search 27 tools, formats (e.g. compress, webp, pdf, video)..."
+        searchField.placeholderString = "Search \(allTools.count) tools, formats (e.g. compress, webp, pdf, video)..."
         searchField.font = NSFont.systemFont(ofSize: 12)
         searchField.target = self
         searchField.action = #selector(searchChanged)
@@ -108,7 +108,7 @@ public class MainWorkspaceView: NSView {
         categoryStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(categoryStack)
 
-        let allBtn = makeCategoryPill(title: "All (27)", category: nil)
+        let allBtn = makeCategoryPill(title: "All (\(allTools.count))", category: nil)
         categoryStack.addArrangedSubview(allBtn)
         for cat in ToolCategory.allCases {
             let count = allTools.filter { $0.category == cat }.count
@@ -381,7 +381,7 @@ public class ToolCardView: NSView {
 
     private func executeTool(urls: [URL]) {
         // ═══════════════════════════════════════════════════════════
-        // MULTI-FILE operations — must process ALL files together
+        // MULTI-FILE operations — process ALL selected files together
         // ═══════════════════════════════════════════════════════════
         switch tool {
         case .mergePDF:
@@ -404,6 +404,32 @@ public class ToolCardView: NSView {
             }
             return
 
+        case .createCollage:
+            do {
+                let resultURL = try ProcessingEngine.shared.createCollage(urls: urls)
+                NSWorkspace.shared.activateFileViewerSelecting([resultURL])
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+            return
+
+        case .joinVideos:
+            Task {
+                do {
+                    let resultURL = try await ProcessingEngine.shared.joinVideos(urls: urls)
+                    await MainActor.run {
+                        NSWorkspace.shared.activateFileViewerSelecting([resultURL])
+                    }
+                } catch {
+                    await MainActor.run {
+                        let alert = NSAlert(error: error)
+                        alert.runModal()
+                    }
+                }
+            }
+            return
+
         default:
             break  // fall through to per-file processing below
         }
@@ -416,11 +442,32 @@ public class ToolCardView: NSView {
                 var resultURL: URL? = nil
                 switch tool {
                 case .compress:
-                    resultURL = try ProcessingEngine.shared.compress(url: url)
+                    let isVideo = (AureloFormat.detect(url: url)?.info.category == .video)
+                    if isVideo {
+                        Task {
+                            do {
+                                let res = try await ProcessingEngine.shared.compressVideo(url: url)
+                                await MainActor.run {
+                                    NSWorkspace.shared.activateFileViewerSelecting([res])
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    let alert = NSAlert(error: error)
+                                    alert.runModal()
+                                }
+                            }
+                        }
+                        continue
+                    } else {
+                        resultURL = try ProcessingEngine.shared.compress(url: url)
+                    }
+
                 case .removeMetadata:
                     resultURL = try ProcessingEngine.shared.removeMetadata(url: url)
+
                 case .frameImage:
                     resultURL = try ProcessingEngine.shared.frameImage(url: url)
+
                 case .readQRCode:
                     let codes = try ProcessingEngine.shared.readQRCode(url: url)
                     let alert = NSAlert()
@@ -428,16 +475,29 @@ public class ToolCardView: NSView {
                     alert.informativeText = codes.isEmpty ? "No QR codes found in image." : "Decoded payload:\n\n" + codes.joined(separator: "\n")
                     alert.runModal()
                     return
+
                 case .extractArchive:
                     resultURL = try ProcessingEngine.shared.extractArchive(url: url)
+
                 case .cropImage:
                     resultURL = try ProcessingEngine.shared.cropImage(url: url, cropRect: CGRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8))
+
                 case .editImage:
                     resultURL = try ProcessingEngine.shared.editImage(url: url)
+
                 case .redactImage:
                     resultURL = try ProcessingEngine.shared.redactImage(url: url, rectFraction: CGRect(x: 0.2, y: 0.2, width: 0.4, height: 0.3))
 
-                // PDF tools (single-file)
+                case .annotateImage:
+                    resultURL = try ProcessingEngine.shared.annotateImage(url: url)
+
+                case .organizePDF:
+                    resultURL = try ProcessingEngine.shared.organizePDF(url: url)
+
+                case .extractText:
+                    resultURL = try ProcessingEngine.shared.extractTextOCR(url: url)
+
+                // Multi-output PDF tools
                 case .splitPDF:
                     let pages = try ProcessingEngine.shared.splitPDF(url: url)
                     if !pages.isEmpty {
@@ -445,13 +505,15 @@ public class ToolCardView: NSView {
                     }
                     continue
 
-                // Async audio/video tools
-                case .normalizeAudio:
+                // Async Video Tools
+                case .videoSnapshots:
                     Task {
                         do {
-                            let res = try await ProcessingEngine.shared.normalizeAudio(url: url)
+                            let snapshots = try await ProcessingEngine.shared.videoSnapshots(url: url)
                             await MainActor.run {
-                                NSWorkspace.shared.activateFileViewerSelecting([res])
+                                if !snapshots.isEmpty {
+                                    NSWorkspace.shared.activateFileViewerSelecting(snapshots)
+                                }
                             }
                         } catch {
                             await MainActor.run {
@@ -478,11 +540,76 @@ public class ToolCardView: NSView {
                     }
                     continue
 
+                case .trimVideo:
+                    Task {
+                        do {
+                            let res = try await ProcessingEngine.shared.trimVideo(url: url)
+                            await MainActor.run {
+                                NSWorkspace.shared.activateFileViewerSelecting([res])
+                            }
+                        } catch {
+                            await MainActor.run {
+                                let alert = NSAlert(error: error)
+                                alert.runModal()
+                            }
+                        }
+                    }
+                    continue
+
+                case .changeVideoSpeed:
+                    Task {
+                        do {
+                            let res = try await ProcessingEngine.shared.changeVideoSpeed(url: url, speed: 2.0)
+                            await MainActor.run {
+                                NSWorkspace.shared.activateFileViewerSelecting([res])
+                            }
+                        } catch {
+                            await MainActor.run {
+                                let alert = NSAlert(error: error)
+                                alert.runModal()
+                            }
+                        }
+                    }
+                    continue
+
+                // Async Audio Tools
+                case .normalizeAudio:
+                    Task {
+                        do {
+                            let res = try await ProcessingEngine.shared.normalizeAudio(url: url)
+                            await MainActor.run {
+                                NSWorkspace.shared.activateFileViewerSelecting([res])
+                            }
+                        } catch {
+                            await MainActor.run {
+                                let alert = NSAlert(error: error)
+                                alert.runModal()
+                            }
+                        }
+                    }
+                    continue
+
+                case .trimAudio:
+                    Task {
+                        do {
+                            let res = try await ProcessingEngine.shared.trimAudio(url: url)
+                            await MainActor.run {
+                                NSWorkspace.shared.activateFileViewerSelecting([res])
+                            }
+                        } catch {
+                            await MainActor.run {
+                                let alert = NSAlert(error: error)
+                                alert.runModal()
+                            }
+                        }
+                    }
+                    continue
+
                 default:
-                    // Tools that are not yet implemented — show informative alert
+                    // Future roadmap tools
                     let alert = NSAlert()
                     alert.messageText = "\(tool.title) — Coming Soon"
-                    alert.informativeText = "This tool is under active development and will be available in a future update.\n\n\(tool.shortDescription)"
+                    alert.informativeText = "This specialized workflow is under development for an upcoming update.\n\n\(tool.shortDescription)"
                     alert.alertStyle = .informational
                     alert.runModal()
                     return
